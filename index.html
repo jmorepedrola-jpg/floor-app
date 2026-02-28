@@ -93,7 +93,6 @@ async function autoLogin() {
 
   const savedCode = localStorage.getItem("accessCode");
 
-  // Si no té codi → genera un (només la primera vegada)
   if(!savedCode){
 
     try {
@@ -121,7 +120,6 @@ async function autoLogin() {
     return;
   }
 
-  // Si té codi → el validem
   try {
 
     const res = await fetch(VALIDATE_URL,{
@@ -206,6 +204,10 @@ sendBtn.onclick=async()=>{
   status.textContent="Processant...";
 
   const fd=new FormData();
+
+  // 🔥 LÍNIA NOVA AFEGIDA (NO TOCA RES MÉS)
+  fd.append("access_code", localStorage.getItem("accessCode"));
+
   fd.append("room_image",document.getElementById("roomFile").files[0]);
   fd.append("material_image",await urlToFile(selectedMaterial.file,selectedMaterial.id+".jpg"));
   fd.append("material_name",selectedMaterial.id);
@@ -223,6 +225,3 @@ sendBtn.onclick=async()=>{
 
 </body>
 </html>
-
-
-
