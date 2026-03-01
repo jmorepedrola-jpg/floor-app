@@ -85,43 +85,21 @@ const result = document.getElementById("result");
 let selectedMaterial = null;
 let x=null, y=null;
 let accessGranted = false;
-let currentCode = null;
 
-/* ---------- 🔐 AUTO LOGIN CONTROLAT ---------- */
+/* ---------- 🔐 AUTO LOGIN (1 CODI PER DISPOSITIU) ---------- */
 
 async function autoLogin() {
 
   const savedCode = localStorage.getItem("accessCode");
 
+  // Si no hi ha codi → crear-ne un
   if(!savedCode){
-
-    try {
-      const res = await fetch(CREATE_CODE_URL,{
-        method:"POST",
-        headers:{ "Content-Type":"application/json" },
-        body:JSON.stringify({})
-      });
-
-      const data = await res.json();
-
-      if(data.success){
-        localStorage.setItem("accessCode", data.code);
-        currentCode = data.code;
-        accessGranted = true;
-        document.getElementById("accessStatus").textContent = 
-          "Accés activat (24h / 10 intents)";
-        document.getElementById("accessStatus").style.color = "green";
-      }
-
-    } catch(err){
-      console.error("Error generant codi");
-    }
-
+    await createNewCode();
     return;
   }
 
+  // Si hi ha codi → validar-lo
   try {
-
     const res = await fetch(VALIDATE_URL,{
       method:"POST",
       headers:{ "Content-Type":"application/json" },
@@ -131,21 +109,41 @@ async function autoLogin() {
     const data = await res.json();
 
     if(data.success){
-      currentCode = savedCode;
       accessGranted = true;
-      document.getElementById("accessStatus").textContent = 
-        "Accés actiu. Intents restants: " + data.data.remaining_attempts;
+      document.getElementById("accessStatus").textContent =
+        "Intents restants: " + data.data.remaining_attempts;
       document.getElementById("accessStatus").style.color = "green";
     } else {
-      localStorage.removeItem("accessCode");
-      accessGranted = false;
-      document.getElementById("accessStatus").textContent = 
-        "Accés caducat. Torna a la botiga per activar-lo.";
-      document.getElementById("accessStatus").style.color = "red";
+      // Si ha caducat → crear-ne un de nou
+      await createNewCode();
     }
 
   } catch(err){
     console.error("Error validant codi");
+  }
+}
+
+async function createNewCode(){
+  try {
+    const res = await fetch(CREATE_CODE_URL,{
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body:JSON.stringify({})
+    });
+
+    const data = await res.json();
+
+    if(data.success){
+      localStorage.setItem("accessCode", data.code);
+      accessGranted = true;
+
+      document.getElementById("accessStatus").textContent =
+        "Tens 10 intents disponibles (24h)";
+      document.getElementById("accessStatus").style.color = "green";
+    }
+
+  } catch(err){
+    console.error("Error generant codi");
   }
 }
 
@@ -205,7 +203,6 @@ sendBtn.onclick=async()=>{
 
   const fd=new FormData();
 
-  // 🔥 LÍNIA NOVA AFEGIDA (NO TOCA RES MÉS)
   fd.append("access_code", localStorage.getItem("accessCode"));
 
   fd.append("room_image",document.getElementById("roomFile").files[0]);
