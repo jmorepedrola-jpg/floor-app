@@ -1,4 +1,4 @@
-<!doctype html>
+<!doctype html> 
 <html lang="ca">
 <head>
 <meta charset="utf-8">
@@ -37,7 +37,7 @@ button:disabled { background:#ccc;cursor:not-allowed;}
 <hr>
 
 <h3>1️⃣ Foto de l’habitació</h3>
-<input type="file" id="roomFile" accept="image/*">
+<input type="file" id="roomFile" accept="image/*" capture="environment">
 
 <div style="position:relative;">
   <img id="room">
@@ -92,13 +92,11 @@ async function autoLogin() {
 
   const savedCode = localStorage.getItem("accessCode");
 
-  // Si no hi ha codi → crear-ne un
   if(!savedCode){
     await createNewCode();
     return;
   }
 
-  // Si hi ha codi → validar-lo
   try {
     const res = await fetch(VALIDATE_URL,{
       method:"POST",
@@ -114,7 +112,6 @@ async function autoLogin() {
         "Intents restants: " + data.data.remaining_attempts;
       document.getElementById("accessStatus").style.color = "green";
     } else {
-      // Si ha caducat → crear-ne un de nou
       await createNewCode();
     }
 
@@ -184,8 +181,6 @@ function validate(){
   sendBtn.disabled=!(selectedMaterial && x!==null && document.getElementById("roomFile").files[0]);
 }
 
-/* ---------- ENVIAMENT ---------- */
-
 async function urlToFile(url,name){
   const r=await fetch(url);
   const b=await r.blob();
@@ -204,7 +199,6 @@ sendBtn.onclick=async()=>{
   const fd=new FormData();
 
   fd.append("access_code", localStorage.getItem("accessCode"));
-
   fd.append("room_image",document.getElementById("roomFile").files[0]);
   fd.append("material_image",await urlToFile(selectedMaterial.file,selectedMaterial.id+".jpg"));
   fd.append("material_name",selectedMaterial.id);
