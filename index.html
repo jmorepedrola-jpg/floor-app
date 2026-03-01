@@ -1,4 +1,4 @@
-<!doctype html> 
+<!doctype html>
 <html lang="ca">
 <head>
 <meta charset="utf-8">
@@ -38,13 +38,13 @@ button:disabled { background:#ccc;cursor:not-allowed;}
 
 <h3>1️⃣ Foto de l’habitació</h3>
 
-<!-- 📁 GALERIA -->
+<!-- GALERIA -->
 <input type="file" id="roomFile" accept="image/*">
 
-<!-- 📷 INPUT OCULT CÀMERA -->
+<!-- CÀMERA OCULTA -->
 <input type="file" id="cameraInput" accept="image/*" capture="environment" style="display:none;">
 
-<!-- 📷 BOTÓ CÀMERA -->
+<!-- BOTÓ CÀMERA -->
 <button type="button" id="openCamera">📷 Obrir càmera</button>
 
 <div style="position:relative;">
@@ -94,7 +94,7 @@ let selectedMaterial = null;
 let x=null, y=null;
 let accessGranted = false;
 
-/* ---------- 🔐 AUTO LOGIN ---------- */
+/* AUTO LOGIN */
 
 async function autoLogin() {
 
@@ -141,7 +141,6 @@ async function createNewCode(){
     if(data.success){
       localStorage.setItem("accessCode", data.code);
       accessGranted = true;
-
       document.getElementById("accessStatus").textContent =
         "Tens 10 intents disponibles (24h)";
       document.getElementById("accessStatus").style.color = "green";
@@ -154,32 +153,43 @@ async function createNewCode(){
 
 window.onload = autoLogin;
 
-/* ---------- CÀMERA ---------- */
+/* MATERIALS */
 
-document.getElementById("openCamera").onclick = function() {
+MATERIALS.forEach(m=>{
+  const d=document.createElement("div");
+  d.className="material";
+  d.innerHTML=`<img src="${m.file}"><div class="label">${m.name}</div>`;
+  d.onclick=()=>{
+    document.querySelectorAll(".material").forEach(e=>e.classList.remove("selected"));
+    d.classList.add("selected");
+    selectedMaterial=m;
+    matName.textContent=m.id;
+    validate();
+  };
+  materialsDiv.appendChild(d);
+});
+
+/* GALERIA */
+document.getElementById("roomFile").onchange=e=>{
+  roomImg.src=URL.createObjectURL(e.target.files[0]);
+  validate();
+};
+
+/* CÀMERA */
+document.getElementById("openCamera").onclick=function(){
   document.getElementById("cameraInput").click();
 };
 
-document.getElementById("cameraInput").onchange = function(e){
-  const file = e.target.files[0];
+document.getElementById("cameraInput").onchange=function(e){
+  const file=e.target.files[0];
   if(file){
-    roomImg.src = URL.createObjectURL(file);
-
-    const dataTransfer = new DataTransfer();
-    dataTransfer.items.add(file);
-    document.getElementById("roomFile").files = dataTransfer.files;
-
+    roomImg.src=URL.createObjectURL(file);
+    const dt=new DataTransfer();
+    dt.items.add(file);
+    document.getElementById("roomFile").files=dt.files;
     validate();
   }
 };
-
-/* ---------- GALERIA ---------- */
-
-document.getElementById("roomFile").onchange=e=>{
-  roomImg.src=URL.createObjectURL(e.target.files[0]);
-};
-
-/* ---------- RESTA IGUAL ---------- */
 
 roomImg.onclick=e=>{
   const r=roomImg.getBoundingClientRect();
@@ -212,7 +222,6 @@ sendBtn.onclick=async()=>{
   status.textContent="Processant...";
 
   const fd=new FormData();
-
   fd.append("access_code", localStorage.getItem("accessCode"));
   fd.append("room_image",document.getElementById("roomFile").files[0]);
   fd.append("material_image",await urlToFile(selectedMaterial.file,selectedMaterial.id+".jpg"));
@@ -228,6 +237,5 @@ sendBtn.onclick=async()=>{
 };
 
 </script>
-
 </body>
 </html>
