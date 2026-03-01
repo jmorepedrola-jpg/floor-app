@@ -38,13 +38,10 @@ button:disabled { background:#ccc;cursor:not-allowed;}
 
 <h3>1️⃣ Foto de l’habitació</h3>
 
-<!-- GALERIA -->
 <input type="file" id="roomFile" accept="image/*">
 
-<!-- CÀMERA OCULTA -->
 <input type="file" id="cameraInput" accept="image/*" capture="environment" style="display:none;">
 
-<!-- BOTÓ CÀMERA -->
 <button type="button" id="openCamera">📷 Obrir càmera</button>
 
 <div style="position:relative;">
@@ -70,7 +67,6 @@ button:disabled { background:#ccc;cursor:not-allowed;}
 
 <script>
 
-/* 🔥 URLS PRODUCCIÓ DEFINITIVES */
 const WEBHOOK_URL = "https://jan-n8n.4tpc2e.easypanel.host/webhook/Surface-ai";
 const VALIDATE_URL = "https://jan-n8n.4tpc2e.easypanel.host/webhook/validate-code";
 const CREATE_CODE_URL = "https://jan-n8n.4tpc2e.easypanel.host/webhook/create-code";
@@ -94,7 +90,7 @@ let selectedMaterial = null;
 let x=null, y=null;
 let accessGranted = false;
 
-/* ---------- 🔐 AUTO LOGIN ---------- */
+/* AUTO LOGIN */
 
 async function autoLogin() {
 
@@ -120,7 +116,10 @@ async function autoLogin() {
         "Intents restants: " + data.data.remaining_attempts;
       document.getElementById("accessStatus").style.color = "green";
     } else {
-      await createNewCode();
+      accessGranted = false;
+      document.getElementById("accessStatus").textContent =
+        "Has esgotat els intents o el codi ha caducat.";
+      document.getElementById("accessStatus").style.color = "red";
     }
 
   } catch(err){
@@ -141,7 +140,6 @@ async function createNewCode(){
     if(data.success){
       localStorage.setItem("accessCode", data.code);
       accessGranted = true;
-
       document.getElementById("accessStatus").textContent =
         "Tens 10 intents disponibles (24h)";
       document.getElementById("accessStatus").style.color = "green";
@@ -154,7 +152,7 @@ async function createNewCode(){
 
 window.onload = autoLogin;
 
-/* ---------- MATERIALS ---------- */
+/* RESTA DEL CODI IGUAL (no modificat) */
 
 MATERIALS.forEach(m=>{
   const d=document.createElement("div");
@@ -170,13 +168,11 @@ MATERIALS.forEach(m=>{
   materialsDiv.appendChild(d);
 });
 
-/* GALERIA */
 document.getElementById("roomFile").onchange=e=>{
   roomImg.src=URL.createObjectURL(e.target.files[0]);
   validate();
 };
 
-/* CÀMERA */
 document.getElementById("openCamera").onclick=function(){
   document.getElementById("cameraInput").click();
 };
@@ -185,11 +181,9 @@ document.getElementById("cameraInput").onchange=function(e){
   const file=e.target.files[0];
   if(file){
     roomImg.src=URL.createObjectURL(file);
-
     const dt=new DataTransfer();
     dt.items.add(file);
     document.getElementById("roomFile").files=dt.files;
-
     validate();
   }
 };
@@ -225,7 +219,6 @@ sendBtn.onclick=async()=>{
   status.textContent="Processant...";
 
   const fd=new FormData();
-
   fd.append("access_code", localStorage.getItem("accessCode"));
   fd.append("room_image",document.getElementById("roomFile").files[0]);
   fd.append("material_image",await urlToFile(selectedMaterial.file,selectedMaterial.id+".jpg"));
