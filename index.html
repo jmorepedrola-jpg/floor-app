@@ -14,7 +14,6 @@ body {
   color:white;
 }
 
-/* Marca subtil de fons */
 body::before{
   content:"SURFACE AI";
   position:fixed;
@@ -77,9 +76,7 @@ h3 { margin-bottom:10px;}
   transition:.25s ease;
 }
 
-.material:hover {
-  transform:translateY(-4px);
-}
+.material:hover { transform:translateY(-4px); }
 
 .material.selected {
   border-color:#2ecc71;
@@ -100,7 +97,6 @@ h3 { margin-bottom:10px;}
 
 #coords { margin:10px 0;font-weight:600;}
 
-/* BOTONS MODERNS */
 .upload-buttons {
   display:flex;
   gap:12px;
@@ -156,21 +152,21 @@ button:disabled {
 <h3>1️⃣ Foto de l’habitació</h3>
 
 <div class="upload-buttons">
-  <label class="btn-modern">
-    📁 Seleccionar foto
-    <input type="file" id="roomFile" accept="image/*" hidden>
-  </label>
+<label class="btn-modern">
+📁 Seleccionar foto
+<input type="file" id="roomFile" accept="image/*" hidden>
+</label>
 
-  <button type="button" id="openCamera" class="btn-modern">
-    📷 Obrir càmera
-  </button>
+<button type="button" id="openCamera" class="btn-modern">
+📷 Obrir càmera
+</button>
 </div>
 
 <input type="file" id="cameraInput" accept="image/*" capture="environment" style="display:none;">
 
 <div style="position:relative;">
-  <img id="room">
-  <div id="dot" hidden></div>
+<img id="room">
+<div id="dot" hidden></div>
 </div>
 
 <p id="coords">X: — | Y: —</p>
@@ -191,16 +187,14 @@ button:disabled {
 
 <script>
 
-/* --- TOT EL TEU JS EXACTAMENT IGUAL --- */
-
 const WEBHOOK_URL = "https://jan-n8n.4tpc2e.easypanel.host/webhook/Surface-ai";
 const VALIDATE_URL = "https://jan-n8n.4tpc2e.easypanel.host/webhook/validate-code";
 const CREATE_CODE_URL = "https://jan-n8n.4tpc2e.easypanel.host/webhook/create-code";
 
 const MATERIALS = [
-  { id:"parquet", name:"Parquet", file:"materials/parquet.jpg" },
-  { id:"rajola_gris", name:"Rajola junta grossa", file:"materials/rajola_gris.jpg" },
-  { id:"rajola_gris1", name:"Rajola junta fina", file:"materials/rajola_gris1.jpg" }
+{ id:"parquet", name:"Parquet", file:"materials/parquet.jpg" },
+{ id:"rajola_gris", name:"Rajola junta grossa", file:"materials/rajola_gris.jpg" },
+{ id:"rajola_gris1", name:"Rajola junta fina", file:"materials/rajola_gris1.jpg" }
 ];
 
 const materialsDiv = document.getElementById("materials");
@@ -216,147 +210,66 @@ let selectedMaterial = null;
 let x=null, y=null;
 let accessGranted = false;
 
-/* AUTO LOGIN */
-async function autoLogin() {
+async function autoLogin(){
 
-  const savedCode = localStorage.getItem("accessCode");
+const savedCode = localStorage.getItem("accessCode");
 
-  if(!savedCode){
-    await createNewCode();
-    return;
-  }
+if(!savedCode){
+await createNewCode();
+return;
+}
 
-  try {
-    const res = await fetch(VALIDATE_URL,{
-      method:"POST",
-      headers:{ "Content-Type":"application/json" },
-      body:JSON.stringify({ code: savedCode })
-    });
+try {
 
-    const data = await res.json();
+const res = await fetch(VALIDATE_URL,{
+method:"POST",
+headers:{ "Content-Type":"application/json" },
+body:JSON.stringify({ code: savedCode })
+});
 
-    if(data.success){
-      accessGranted = true;
-      document.getElementById("accessStatus").textContent =
-        "Intents restants: " + data.data.remaining_attempts;
-      document.getElementById("accessStatus").style.color = "#2ecc71";
-    } else {
-      accessGranted = false;
-      document.getElementById("accessStatus").textContent =
-        "Has esgotat els intents o el codi ha caducat.";
-      document.getElementById("accessStatus").style.color = "red";
-    }
+const data = await res.json();
 
-  } catch(err){
-    console.error("Error validant codi");
-  }
+if(data.success){
+accessGranted = true;
+document.getElementById("accessStatus").textContent =
+"Intents restants: " + data.data.remaining_attempts;
+document.getElementById("accessStatus").style.color = "#2ecc71";
+} else {
+
+localStorage.removeItem("accessCode");
+await createNewCode();
+
+}
+
+} catch(err){
+console.error("Error validant codi");
+}
+
 }
 
 async function createNewCode(){
-  try {
-    const res = await fetch(CREATE_CODE_URL,{
-      method:"POST",
-      headers:{ "Content-Type":"application/json" },
-      body:JSON.stringify({})
-    });
+try {
 
-    const data = await res.json();
+const res = await fetch(CREATE_CODE_URL,{
+method:"POST",
+headers:{ "Content-Type":"application/json" },
+body:JSON.stringify({})
+});
 
-    if(data.success){
-      localStorage.setItem("accessCode", data.code);
-      accessGranted = true;
-      document.getElementById("accessStatus").textContent =
-        "Tens 10 intents disponibles (24h)";
-      document.getElementById("accessStatus").style.color = "#2ecc71";
-    }
+const data = await res.json();
 
-  } catch(err){
-    console.error("Error generant codi");
-  }
+if(data.success){
+localStorage.setItem("accessCode", data.code);
+accessGranted = true;
+
+document.getElementById("accessStatus").textContent =
+"Tens 10 intents disponibles (24h)";
+document.getElementById("accessStatus").style.color = "#2ecc71";
+}
+
+} catch(err){
+console.error("Error generant codi");
+}
 }
 
 window.onload = autoLogin;
-
-/* RESTA EXACTA IGUAL */
-MATERIALS.forEach(m=>{
-  const d=document.createElement("div");
-  d.className="material";
-  d.innerHTML=`<img src="${m.file}"><div class="label">${m.name}</div>`;
-  d.onclick=()=>{
-    document.querySelectorAll(".material").forEach(e=>e.classList.remove("selected"));
-    d.classList.add("selected");
-    selectedMaterial=m;
-    matName.textContent=m.id;
-    validate();
-  };
-  materialsDiv.appendChild(d);
-});
-
-document.getElementById("roomFile").onchange=e=>{
-  roomImg.src=URL.createObjectURL(e.target.files[0]);
-  validate();
-};
-
-document.getElementById("openCamera").onclick=function(){
-  document.getElementById("cameraInput").click();
-};
-
-document.getElementById("cameraInput").onchange=function(e){
-  const file=e.target.files[0];
-  if(file){
-    roomImg.src=URL.createObjectURL(file);
-    const dt=new DataTransfer();
-    dt.items.add(file);
-    document.getElementById("roomFile").files=dt.files;
-    validate();
-  }
-};
-
-roomImg.onclick=e=>{
-  const r=roomImg.getBoundingClientRect();
-  x=Math.round(e.clientX-r.left);
-  y=Math.round(e.clientY-r.top);
-  dot.style.left=x+"px";
-  dot.style.top=y+"px";
-  dot.hidden=false;
-  coords.textContent=`X: ${x} | Y: ${y}`;
-  validate();
-};
-
-function validate(){
-  sendBtn.disabled=!(selectedMaterial && x!==null && document.getElementById("roomFile").files[0]);
-}
-
-async function urlToFile(url,name){
-  const r=await fetch(url);
-  const b=await r.blob();
-  return new File([b],name,{type:b.type});
-}
-
-sendBtn.onclick=async()=>{
-  if(!accessGranted){
-    alert("Accés no disponible.");
-    return;
-  }
-
-  status.textContent="Processant...";
-
-  const fd=new FormData();
-  fd.append("access_code", localStorage.getItem("accessCode"));
-  fd.append("room_image",document.getElementById("roomFile").files[0]);
-  fd.append("material_image",await urlToFile(selectedMaterial.file,selectedMaterial.id+".jpg"));
-  fd.append("material_name",selectedMaterial.id);
-  fd.append("x",x);
-  fd.append("y",y);
-
-  const res=await fetch(WEBHOOK_URL,{method:"POST",body:fd});
-  const blob=await res.blob();
-  result.src=URL.createObjectURL(blob);
-  result.style.display="block";
-  status.textContent="Fet ✅";
-};
-
-</script>
-
-</body>
-</html>
