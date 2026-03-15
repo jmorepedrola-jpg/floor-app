@@ -193,7 +193,6 @@ button:disabled {
 
 const WEBHOOK_URL = "https://jan-n8n.4tpc2e.easypanel.host/webhook/Surface-ai";
 const VALIDATE_URL = "https://jan-n8n.4tpc2e.easypanel.host/webhook/validate-code";
-const CREATE_CODE_URL = "https://jan-n8n.4tpc2e.easypanel.host/webhook/create-code";
 
 const MATERIALS = [
   { id:"parquet", name:"Parquet", file:"materials/parquet.jpg" },
@@ -211,18 +210,59 @@ const coords = document.getElementById("coords");
 const result = document.getElementById("result");
 
 let selectedMaterial = null;
-let x=null, y=null;
+let x = null, y = null;
 let accessGranted = false;
+let remainingAttempts = 0;
+let currentAccessCode = null;
 
-/* AUTO LOGIN */
+/* -------------------------
+   ACCÉS PER QR / ENLLAÇ
+------------------------- */
+
+function getCodeFromUrl(){
+  const params = new URLSearchParams(window.location.search);
+  return params.get("code");
+}
+
+function updateAccessUI(data){
+  remainingAttempts = Number(data?.remaining_attempts || 0);
+
+  if(remainingAttempts <= 0){
+    accessGranted = false;
+    document.getElementById("accessStatus").textContent =
+      "Has esgotat els intents. Torna a escanejar un nou QR o obrir un nou enllaç de la botiga.";
+    document.getElementById("accessStatus").style.color = "#e74c3c";
+    validate();
+    return;
+  }
+
+  accessGranted = true;
+  document.getElementById("accessStatus").textContent =
+    "Intents restants: " + remainingAttempts;
+  document.getElementById("accessStatus").style.color = "#2ecc71";
+}
+
 async function autoLogin() {
+
+  // Si ve un code a la URL (?code=XXXX), aquest guanya i es guarda
+  const codeFromUrl = getCodeFromUrl();
+  if(codeFromUrl){
+    localStorage.setItem("accessCode", codeFromUrl);
+  }
 
   const savedCode = localStorage.getItem("accessCode");
 
+  // IMPORTANT: si no hi ha codi, NO en generem un de nou
   if(!savedCode){
-    await createNewCode();
+    accessGranted = false;
+    document.getElementById("accessStatus").textContent =
+      "No hi ha cap accés actiu. Escaneja el QR o obre l’enllaç de la botiga.";
+    document.getElementById("accessStatus").style.color = "#e74c3c";
+    validate();
     return;
   }
+
+  currentAccessCode = savedCode;
 
   try {
     const res = await fetch(VALIDATE_URL,{
@@ -233,51 +273,33 @@ async function autoLogin() {
 
     const data = await res.json();
 
-    if(data.success){
-      accessGranted = true;
-      document.getElementById("accessStatus").textContent =
-        "Intents restants: " + data.data.remaining_attempts;
-      document.getElementById("accessStatus").style.color = "#2ecc71";
+    if(data.success && data.data){
+      updateAccessUI(data.data);
+      validate();
     } else {
-
-      /* AQUÍ ÉS L’ÚNIC CANVI */
-      localStorage.removeItem("accessCode");
-      await createNewCode();
-
+      accessGranted = false;
+      document.getElementById("accessStatus").textContent =
+        "Aquest accés ha caducat o ja no és vàlid. Torna a la botiga i escaneja un nou QR o enllaç.";
+      document.getElementById("accessStatus").style.color = "#e74c3c";
+      validate();
     }
 
   } catch(err){
     console.error("Error validant codi");
-  }
-}
-
-async function createNewCode(){
-  try {
-    const res = await fetch(CREATE_CODE_URL,{
-      method:"POST",
-      headers:{ "Content-Type":"application/json" },
-      body:JSON.stringify({})
-    });
-
-    const data = await res.json();
-
-    if(data.success){
-      localStorage.setItem("accessCode", data.code);
-      accessGranted = true;
-
-      document.getElementById("accessStatus").textContent =
-        "Tens 10 intents disponibles (24h)";
-      document.getElementById("accessStatus").style.color = "#2ecc71";
-    }
-
-  } catch(err){
-    console.error("Error generant codi");
+    accessGranted = false;
+    document.getElementById("accessStatus").textContent =
+      "No s'ha pogut validar l'accés ara mateix.";
+    document.getElementById("accessStatus").style.color = "#e67e22";
+    validate();
   }
 }
 
 window.onload = autoLogin;
 
-/* RESTA EXACTA IGUAL */
+/* -------------------------
+   RESTA IGUAL (MATERIALS)
+------------------------- */
+
 MATERIALS.forEach(m=>{
   const d=document.createElement("div");
   d.className="material";
@@ -324,7 +346,13 @@ roomImg.onclick=e=>{
 };
 
 function validate(){
-  sendBtn.disabled=!(selectedMaterial && x!==null && document.getElementById("roomFile").files[0]);
+  sendBtn.disabled = !(
+    accessGranted &&
+    remainingAttempts > 0 &&
+    selectedMaterial &&
+    x !== null &&
+    document.getElementById("roomFile").files[0]
+  );
 }
 
 async function urlToFile(url,name){
@@ -334,26 +362,62 @@ async function urlToFile(url,name){
 }
 
 sendBtn.onclick=async()=>{
-  if(!accessGranted){
-    alert("Accés no disponible.");
+  if(!accessGranted || remainingAttempts <= 0){
+    alert("Accés no disponible o sense intents.");
     return;
   }
 
   status.textContent="Processant...";
 
   const fd=new FormData();
-  fd.append("access_code", localStorage.getItem("accessCode"));
+  fd.append("access_code", currentAccessCode);
   fd.append("room_image",document.getElementById("roomFile").files[0]);
   fd.append("material_image",await urlToFile(selectedMaterial.file,selectedMaterial.id+".jpg"));
   fd.append("material_name",selectedMaterial.id);
   fd.append("x",x);
   fd.append("y",y);
 
-  const res=await fetch(WEBHOOK_URL,{method:"POST",body:fd});
-  const blob=await res.blob();
-  result.src=URL.createObjectURL(blob);
-  result.style.display="block";
-  status.textContent="Fet ✅";
+  try {
+    const res=await fetch(WEBHOOK_URL,{method:"POST",body:fd});
+
+    if(!res.ok){
+      throw new Error("Error al generar la imatge");
+    }
+
+    const blob=await res.blob();
+    result.src=URL.createObjectURL(blob);
+    result.style.display="block";
+    status.textContent="Fet ✅";
+
+    // Després de generar, tornem a validar per refrescar intents
+    try {
+      const checkRes = await fetch(VALIDATE_URL,{
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body:JSON.stringify({ code: currentAccessCode })
+      });
+
+      const checkData = await checkRes.json();
+
+      if(checkData.success && checkData.data){
+        updateAccessUI(checkData.data);
+      } else {
+        accessGranted = false;
+        document.getElementById("accessStatus").textContent =
+          "Aquest accés ha caducat o ja no és vàlid. Torna a la botiga i escaneja un nou QR o enllaç.";
+        document.getElementById("accessStatus").style.color = "#e74c3c";
+      }
+
+      validate();
+
+    } catch(err){
+      console.error("Error refrescant intents");
+    }
+
+  } catch(err){
+    console.error(err);
+    status.textContent="Error ❌";
+  }
 };
 
 </script>
