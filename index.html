@@ -31,7 +31,7 @@ body::before{
 }
 
 /* =========================
-   PORTADA NOU (ADD ONLY)
+   PORTADA
 ========================= */
 #introScreen{
   position:fixed;
@@ -150,7 +150,6 @@ body::before{
     grid-template-columns:1fr;
   }
 }
-/* ========================= */
 
 .container {
   position:relative;
@@ -223,7 +222,6 @@ h3 { margin-bottom:10px;}
 
 #coords { margin:10px 0;font-weight:600;}
 
-/* BOTONS MODERNS */
 .upload-buttons {
   display:flex;
   gap:12px;
@@ -270,9 +268,6 @@ button:disabled {
 
 <body>
 
-<!-- =========================
-     PORTADA NOU (ADD ONLY)
-========================= -->
 <div id="introScreen">
   <div class="intro-card">
     <div class="intro-badge">SURFACE AI EXPERIENCE</div>
@@ -297,7 +292,6 @@ button:disabled {
     <button id="enterAppBtn" class="intro-btn">Entrar</button>
   </div>
 </div>
-<!-- ========================= -->
 
 <div class="container">
 
@@ -363,7 +357,6 @@ const dot = document.getElementById("dot");
 const coords = document.getElementById("coords");
 const result = document.getElementById("result");
 
-/* PORTADA */
 const introScreen = document.getElementById("introScreen");
 const enterAppBtn = document.getElementById("enterAppBtn");
 
@@ -373,18 +366,11 @@ let accessGranted = false;
 let remainingAttempts = 0;
 let currentAccessCode = null;
 
-/* =========================
-   PORTADA
-========================= */
 if (enterAppBtn) {
   enterAppBtn.onclick = () => {
     introScreen.classList.add("hidden");
   };
 }
-
-/* -------------------------
-   ACCÉS PER QR / ENLLAÇ
-------------------------- */
 
 function getCodeFromUrl(){
   const params = new URLSearchParams(window.location.search);
@@ -405,7 +391,10 @@ function updateAccessUI(data){
   if(remainingAttempts <= 0){
     accessGranted = false;
     currentAccessCode = null;
+
     clearCodeFromUrl();
+    sessionStorage.removeItem("surface_ai_code_created");
+    sessionStorage.removeItem("surface_ai_last_code");
 
     document.getElementById("accessStatus").textContent =
       "Has esgotat els intents. Torna a escanejar un nou QR o obrir un nou enllaç de la botiga.";
@@ -427,6 +416,8 @@ async function createNewCodeAndRedirect(){
     document.getElementById("accessStatus").style.color = "#f1c40f";
     validate();
 
+    clearCodeFromUrl();
+
     const createRes = await fetch(CREATE_CODE_URL, {
       method: "GET",
       cache: "no-store"
@@ -444,6 +435,9 @@ async function createNewCodeAndRedirect(){
       null;
 
     if(createData?.success && newCode){
+      sessionStorage.setItem("surface_ai_code_created", "1");
+      sessionStorage.setItem("surface_ai_last_code", newCode);
+
       const newUrl = window.location.pathname + "?code=" + encodeURIComponent(newCode);
       window.location.replace(newUrl);
       return;
@@ -463,14 +457,22 @@ async function createNewCodeAndRedirect(){
 
 async function autoLogin() {
   const codeFromUrl = getCodeFromUrl();
+  const createdByThisSession = sessionStorage.getItem("surface_ai_code_created");
+  const lastCreatedCode = sessionStorage.getItem("surface_ai_last_code");
 
-  // SI NO HI HA CODE A LA URL -> CREAR CODI NOU
+  // Si no hi ha code, crear nou
   if(!codeFromUrl){
     await createNewCodeAndRedirect();
     return;
   }
 
-  // SI HI HA CODE -> VALIDAR AQUEST CODI
+  // Si hi ha code però NO és exactament el que acabem de crear -> ignorar i crear nou
+  if(!createdByThisSession || !lastCreatedCode || codeFromUrl !== lastCreatedCode){
+    await createNewCodeAndRedirect();
+    return;
+  }
+
+  // Només validem el codi si és exactament el que aquesta sessió ha creat
   currentAccessCode = codeFromUrl;
 
   try {
@@ -487,10 +489,7 @@ async function autoLogin() {
 
     const data = await res.json();
 
-    // Compatible amb diferents formats de resposta
-    const payload =
-      data?.data ??
-      data;
+    const payload = data?.data ?? data;
 
     const hasAttemptsField =
       payload?.remaining_attempts !== undefined ||
@@ -503,6 +502,8 @@ async function autoLogin() {
       accessGranted = false;
       currentAccessCode = null;
       clearCodeFromUrl();
+      sessionStorage.removeItem("surface_ai_code_created");
+      sessionStorage.removeItem("surface_ai_last_code");
 
       document.getElementById("accessStatus").textContent =
         "Aquest accés ha caducat o ja no és vàlid. Torna a escanejar el QR o obrir un nou enllaç de la botiga.";
@@ -523,10 +524,6 @@ async function autoLogin() {
 }
 
 window.onload = autoLogin;
-
-/* -------------------------
-   RESTA IGUAL (MATERIALS)
-------------------------- */
 
 MATERIALS.forEach(m=>{
   const d=document.createElement("div");
@@ -622,7 +619,7 @@ sendBtn.onclick=async()=>{
     result.style.display="block";
     status.textContent="Fet ✅";
 
-    // Després de generar, tornem a validar per refrescar intents
+    // Refrescar intents després de generar
     try {
       const checkRes = await fetch(VALIDATE_URL,{
         method:"POST",
@@ -648,6 +645,8 @@ sendBtn.onclick=async()=>{
         accessGranted = false;
         currentAccessCode = null;
         clearCodeFromUrl();
+        sessionStorage.removeItem("surface_ai_code_created");
+        sessionStorage.removeItem("surface_ai_last_code");
 
         document.getElementById("accessStatus").textContent =
           "Aquest accés ha caducat o ja no és vàlid. Torna a la botiga i escaneja un nou QR o enllaç.";
