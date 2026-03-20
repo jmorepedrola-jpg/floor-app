@@ -228,6 +228,7 @@ h3 { margin-bottom:10px;}
   display:flex;
   gap:12px;
   margin-bottom:15px;
+  flex-wrap:wrap;
 }
 
 .btn-modern {
@@ -276,7 +277,7 @@ button:disabled {
   <div class="intro-card">
     <div class="intro-badge">SURFACE AI EXPERIENCE</div>
     <h1 class="intro-title">SURFACE AI</h1>
-    <p class="intro-sub">Cliqui per poguer cambiar el materials</p>
+    <p class="intro-sub">Cliqui per poder canviar els materials</p>
 
     <div class="intro-materials">
       <div class="intro-material">
@@ -345,6 +346,7 @@ button:disabled {
 
 const WEBHOOK_URL = "https://jan-n8n.4tpc2e.easypanel.host/webhook/Surface-ai";
 const VALIDATE_URL = "https://jan-n8n.4tpc2e.easypanel.host/webhook/validate-code";
+const CREATE_CODE_URL = "https://jan-n8n.4tpc2e.easypanel.host/webhook/create-code";
 
 const MATERIALS = [
   { id:"parquet", name:"Parquet", file:"materials/parquet.jpg" },
@@ -361,6 +363,10 @@ const dot = document.getElementById("dot");
 const coords = document.getElementById("coords");
 const result = document.getElementById("result");
 
+/* PORTADA */
+const introScreen = document.getElementById("introScreen");
+const enterAppBtn = document.getElementById("enterAppBtn");
+
 let selectedMaterial = null;
 let x = null, y = null;
 let accessGranted = false;
@@ -368,17 +374,13 @@ let remainingAttempts = 0;
 let currentAccessCode = null;
 
 /* =========================
-   PORTADA NOU (ADD ONLY)
+   PORTADA
 ========================= */
-const introScreen = document.getElementById("introScreen");
-const enterAppBtn = document.getElementById("enterAppBtn");
-
 if (enterAppBtn) {
   enterAppBtn.onclick = () => {
     introScreen.classList.add("hidden");
   };
 }
-/* ========================= */
 
 /* -------------------------
    ACCÉS PER QR / ENLLAÇ
@@ -389,11 +391,22 @@ function getCodeFromUrl(){
   return params.get("code");
 }
 
+function clearCodeFromUrl(){
+  window.history.replaceState({}, document.title, window.location.pathname);
+}
+
 function updateAccessUI(data){
-  remainingAttempts = Number(data?.remaining_attempts || 0);
+  remainingAttempts = Number(
+    data?.remaining_attempts ??
+    data?.uses_left ??
+    0
+  );
 
   if(remainingAttempts <= 0){
     accessGranted = false;
+    currentAccessCode = null;
+    clearCodeFromUrl();
+
     document.getElementById("accessStatus").textContent =
       "Has esgotat els intents. Torna a escanejar un nou QR o obrir un nou enllaç de la botiga.";
     document.getElementById("accessStatus").style.color = "#e74c3c";
@@ -407,51 +420,101 @@ function updateAccessUI(data){
   document.getElementById("accessStatus").style.color = "#2ecc71";
 }
 
-async function autoLogin() {
+async function createNewCodeAndRedirect(){
+  try {
+    accessGranted = false;
+    document.getElementById("accessStatus").textContent = "Generant nou accés...";
+    document.getElementById("accessStatus").style.color = "#f1c40f";
+    validate();
 
-  // Si ve un code a la URL (?code=XXXX), aquest guanya i es guarda
-  const codeFromUrl = getCodeFromUrl();
-  if(codeFromUrl){
-    localStorage.setItem("accessCode", codeFromUrl);
-  }
+    const createRes = await fetch(CREATE_CODE_URL, {
+      method: "GET",
+      cache: "no-store"
+    });
 
-  const savedCode = localStorage.getItem("accessCode");
+    if(!createRes.ok){
+      throw new Error("No s'ha pogut cridar create-code");
+    }
 
-  // IMPORTANT: si no hi ha codi, NO en generem un de nou
-  if(!savedCode){
+    const createData = await createRes.json();
+
+    const newCode =
+      createData?.code ??
+      createData?.data?.code ??
+      null;
+
+    if(createData?.success && newCode){
+      const newUrl = window.location.pathname + "?code=" + encodeURIComponent(newCode);
+      window.location.replace(newUrl);
+      return;
+    }
+
+    throw new Error("Resposta de create-code invàlida");
+
+  } catch(err){
+    console.error("Error creant codi:", err);
     accessGranted = false;
     document.getElementById("accessStatus").textContent =
-      "No hi ha cap accés actiu. Escaneja el QR o obre l’enllaç de la botiga.";
+      "No s'ha pogut generar un nou accés ara mateix.";
     document.getElementById("accessStatus").style.color = "#e74c3c";
     validate();
+  }
+}
+
+async function autoLogin() {
+  const codeFromUrl = getCodeFromUrl();
+
+  // SI NO HI HA CODE A LA URL -> CREAR CODI NOU
+  if(!codeFromUrl){
+    await createNewCodeAndRedirect();
     return;
   }
 
-  currentAccessCode = savedCode;
+  // SI HI HA CODE -> VALIDAR AQUEST CODI
+  currentAccessCode = codeFromUrl;
 
   try {
     const res = await fetch(VALIDATE_URL,{
       method:"POST",
       headers:{ "Content-Type":"application/json" },
-      body:JSON.stringify({ code: savedCode })
+      body:JSON.stringify({ code: codeFromUrl }),
+      cache: "no-store"
     });
+
+    if(!res.ok){
+      throw new Error("Resposta HTTP no OK de validate-code");
+    }
 
     const data = await res.json();
 
-    if(data.success && data.data){
-      updateAccessUI(data.data);
+    // Compatible amb diferents formats de resposta
+    const payload =
+      data?.data ??
+      data;
+
+    const hasAttemptsField =
+      payload?.remaining_attempts !== undefined ||
+      payload?.uses_left !== undefined;
+
+    if((data?.success || hasAttemptsField) && payload){
+      updateAccessUI(payload);
       validate();
     } else {
       accessGranted = false;
+      currentAccessCode = null;
+      clearCodeFromUrl();
+
       document.getElementById("accessStatus").textContent =
-        "Aquest accés ha caducat o ja no és vàlid. Torna a la botiga i escaneja un nou QR o enllaç.";
+        "Aquest accés ha caducat o ja no és vàlid. Torna a escanejar el QR o obrir un nou enllaç de la botiga.";
       document.getElementById("accessStatus").style.color = "#e74c3c";
       validate();
     }
 
   } catch(err){
-    console.error("Error validant codi");
+    console.error("Error validant codi:", err);
     accessGranted = false;
+    currentAccessCode = null;
+
     document.getElementById("accessStatus").textContent =
       "No s'ha pogut validar l'accés ara mateix.";
     document.getElementById("accessStatus").style.color = "#e67e22";
@@ -480,7 +543,10 @@ MATERIALS.forEach(m=>{
 });
 
 document.getElementById("roomFile").onchange=e=>{
-  roomImg.src=URL.createObjectURL(e.target.files[0]);
+  const file = e.target.files[0];
+  if(file){
+    roomImg.src=URL.createObjectURL(file);
+  }
   validate();
 };
 
@@ -500,6 +566,8 @@ document.getElementById("cameraInput").onchange=function(e){
 };
 
 roomImg.onclick=e=>{
+  if(!roomImg.src) return;
+
   const r=roomImg.getBoundingClientRect();
   x=Math.round(e.clientX-r.left);
   y=Math.round(e.clientY-r.top);
@@ -527,7 +595,7 @@ async function urlToFile(url,name){
 }
 
 sendBtn.onclick=async()=>{
-  if(!accessGranted || remainingAttempts <= 0){
+  if(!accessGranted || remainingAttempts <= 0 || !currentAccessCode){
     alert("Accés no disponible o sense intents.");
     return;
   }
@@ -559,15 +627,28 @@ sendBtn.onclick=async()=>{
       const checkRes = await fetch(VALIDATE_URL,{
         method:"POST",
         headers:{ "Content-Type":"application/json" },
-        body:JSON.stringify({ code: currentAccessCode })
+        body:JSON.stringify({ code: currentAccessCode }),
+        cache: "no-store"
       });
 
-      const checkData = await checkRes.json();
+      if(!checkRes.ok){
+        throw new Error("Resposta HTTP no OK en refresc d'intents");
+      }
 
-      if(checkData.success && checkData.data){
-        updateAccessUI(checkData.data);
+      const checkData = await checkRes.json();
+      const payload = checkData?.data ?? checkData;
+
+      const hasAttemptsField =
+        payload?.remaining_attempts !== undefined ||
+        payload?.uses_left !== undefined;
+
+      if((checkData?.success || hasAttemptsField) && payload){
+        updateAccessUI(payload);
       } else {
         accessGranted = false;
+        currentAccessCode = null;
+        clearCodeFromUrl();
+
         document.getElementById("accessStatus").textContent =
           "Aquest accés ha caducat o ja no és vàlid. Torna a la botiga i escaneja un nou QR o enllaç.";
         document.getElementById("accessStatus").style.color = "#e74c3c";
@@ -576,7 +657,7 @@ sendBtn.onclick=async()=>{
       validate();
 
     } catch(err){
-      console.error("Error refrescant intents");
+      console.error("Error refrescant intents:", err);
     }
 
   } catch(err){
