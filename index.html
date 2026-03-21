@@ -1,4 +1,3 @@
-
 <!doctype html>
 <html lang="ca">
 <head>
@@ -347,6 +346,8 @@ const MATERIALS = [
   { id:"rajola_gris1", name:"Rajola junta fina", file:"materials/rajola_gris1.jpg" }
 ];
 
+const STORAGE_CODE_KEY = "surface_ai_access_code";
+
 const materialsDiv = document.getElementById("materials");
 const matName = document.getElementById("matName");
 const sendBtn = document.getElementById("send");
@@ -378,8 +379,29 @@ function getCodeFromUrl(){
   return params.get("code");
 }
 
+function saveCode(code){
+  if(code) localStorage.setItem(STORAGE_CODE_KEY, code);
+}
+
+function getSavedCode(){
+  return localStorage.getItem(STORAGE_CODE_KEY);
+}
+
+function clearSavedCode(){
+  localStorage.removeItem(STORAGE_CODE_KEY);
+  currentAccessCode = null;
+}
+
 function clearCodeFromUrl(){
   window.history.replaceState({}, document.title, window.location.pathname);
+}
+
+function setBlockedMessage(msg, color = "#e74c3c"){
+  accessGranted = false;
+  remainingAttempts = 0;
+  document.getElementById("accessStatus").textContent = msg;
+  document.getElementById("accessStatus").style.color = color;
+  validate();
 }
 
 function updateAccessUI(data){
@@ -391,9 +413,7 @@ function updateAccessUI(data){
 
   if(remainingAttempts <= 0){
     accessGranted = false;
-    currentAccessCode = null;
-
-    // neteja només quan està esgotat
+    clearSavedCode();
     clearCodeFromUrl();
 
     document.getElementById("accessStatus").textContent =
@@ -409,65 +429,70 @@ function updateAccessUI(data){
   document.getElementById("accessStatus").style.color = "#2ecc71";
 }
 
+async function validateCode(code){
+  const res = await fetch(VALIDATE_URL,{
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body:JSON.stringify({ code })
+  });
+
+  if(!res.ok){
+    throw new Error("Resposta HTTP no OK de validate-code");
+  }
+
+  const data = await res.json();
+  const payload = data?.data ?? data;
+
+  const hasAttemptsField =
+    payload?.remaining_attempts !== undefined ||
+    payload?.uses_left !== undefined;
+
+  if((data?.success || hasAttemptsField) && payload){
+    updateAccessUI(payload);
+    return true;
+  }
+
+  return false;
+}
+
 async function autoLogin() {
   const codeFromUrl = getCodeFromUrl();
 
-  // si no hi ha code a la URL, NO fem res
-  if(!codeFromUrl){
-    accessGranted = false;
-    currentAccessCode = null;
-    document.getElementById("accessStatus").textContent =
-      "Escaneja el QR o obre l’enllaç de la botiga per començar.";
-    document.getElementById("accessStatus").style.color = "#e67e22";
-    validate();
-    return;
-  }
+  // 1) Si arriba un nou code per URL (escaneig nou), aquest SEMPRE guanya
+  if(codeFromUrl){
+    currentAccessCode = codeFromUrl;
+    saveCode(codeFromUrl);
+  } else {
+    // 2) Si no hi ha code a URL, reutilitzem el guardat
+    const savedCode = getSavedCode();
 
-  currentAccessCode = codeFromUrl;
-
-  try {
-    const res = await fetch(VALIDATE_URL,{
-      method:"POST",
-      headers:{ "Content-Type":"application/json" },
-      body:JSON.stringify({ code: codeFromUrl })
-    });
-
-    if(!res.ok){
-      throw new Error("Resposta HTTP no OK de validate-code");
+    if(!savedCode){
+      setBlockedMessage("Escaneja el QR o obre l’enllaç de la botiga per començar.", "#e67e22");
+      return;
     }
 
-    const data = await res.json();
-    const payload = data?.data ?? data;
+    currentAccessCode = savedCode;
+  }
 
-    const hasAttemptsField =
-      payload?.remaining_attempts !== undefined ||
-      payload?.uses_left !== undefined;
+  // 3) Validem el codi actual (NOMÉS CONSULTA; NO HAURIA DE RESTAR)
+  try {
+    const ok = await validateCode(currentAccessCode);
 
-    if((data?.success || hasAttemptsField) && payload){
-      updateAccessUI(payload);
+    if(ok){
+      // si venia per URL, netegem la URL després de guardar-lo
+      if(codeFromUrl){
+        clearCodeFromUrl();
+      }
       validate();
     } else {
-      accessGranted = false;
-      currentAccessCode = null;
-
-      // si és invàlid, netegem URL perquè no es quedi enganxat
+      clearSavedCode();
       clearCodeFromUrl();
-
-      document.getElementById("accessStatus").textContent =
-        "Aquest accés ha caducat o ja no és vàlid. Torna a escanejar un nou QR o obrir un nou enllaç de la botiga.";
-      document.getElementById("accessStatus").style.color = "#e74c3c";
-      validate();
+      setBlockedMessage("Aquest accés ha caducat o ja no és vàlid. Torna a escanejar un nou QR o obrir un nou enllaç de la botiga.");
     }
 
   } catch(err){
     console.error("Error validant codi:", err);
-    accessGranted = false;
-    currentAccessCode = null;
-
-    document.getElementById("accessStatus").textContent =
-      "No s'ha pogut validar l'accés ara mateix.";
-    document.getElementById("accessStatus").style.color = "#e67e22";
-    validate();
+    setBlockedMessage("No s'ha pogut validar l'accés ara mateix.", "#e67e22");
   }
 }
 
@@ -548,6 +573,9 @@ sendBtn.onclick=async()=>{
 
   status.textContent="Processant...";
 
+  // Evitem doble clic / doble consum accidental
+  sendBtn.disabled = true;
+
   const fd=new FormData();
   fd.append("access_code", currentAccessCode);
   fd.append("room_image",document.getElementById("roomFile").files[0]);
@@ -564,50 +592,40 @@ sendBtn.onclick=async()=>{
     }
 
     const blob=await res.blob();
+
+    // Si per algun motiu no arriba imatge real
+    if(!blob || blob.size === 0){
+      throw new Error("La resposta no conté imatge");
+    }
+
     result.src=URL.createObjectURL(blob);
     result.style.display="block";
     status.textContent="Fet ✅";
 
-    // refrescar intents després de generar
+    // Només després que la imatge arribi bé, refresquem intents
+    // (això només consulta; el descompte real ha d'estar a Surface-ai)
     try {
-      const checkRes = await fetch(VALIDATE_URL,{
-        method:"POST",
-        headers:{ "Content-Type":"application/json" },
-        body:JSON.stringify({ code: currentAccessCode })
-      });
+      const ok = await validateCode(currentAccessCode);
 
-      if(!checkRes.ok){
-        throw new Error("Resposta HTTP no OK en refresc d'intents");
-      }
-
-      const checkData = await checkRes.json();
-      const payload = checkData?.data ?? checkData;
-
-      const hasAttemptsField =
-        payload?.remaining_attempts !== undefined ||
-        payload?.uses_left !== undefined;
-
-      if((checkData?.success || hasAttemptsField) && payload){
-        updateAccessUI(payload);
-      } else {
-        accessGranted = false;
-        currentAccessCode = null;
+      if(!ok){
+        clearSavedCode();
         clearCodeFromUrl();
-
-        document.getElementById("accessStatus").textContent =
-          "Aquest accés ha caducat o ja no és vàlid. Torna a la botiga i escaneja un nou QR o enllaç.";
-        document.getElementById("accessStatus").style.color = "#e74c3c";
+        setBlockedMessage("Aquest accés ha caducat o ja no és vàlid. Torna a la botiga i escaneja un nou QR o enllaç.");
+      } else {
+        validate();
       }
-
-      validate();
 
     } catch(err){
       console.error("Error refrescant intents:", err);
+      // No trenquem l'experiència si falla el refresc visual
+      validate();
     }
 
   } catch(err){
     console.error(err);
     status.textContent="Error ❌";
+    // Rehabilitem si hi ha error, sense gastar res des del front
+    validate();
   }
 };
 </script>
