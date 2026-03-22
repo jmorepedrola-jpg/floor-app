@@ -339,6 +339,7 @@ button:disabled {
 <script>
 const WEBHOOK_URL = "https://jan-n8n.4tpc2e.easypanel.host/webhook/Surface-ai";
 const VALIDATE_URL = "https://jan-n8n.4tpc2e.easypanel.host/webhook/validate-code";
+const CREATE_CODE_URL = "https://jan-n8n.4tpc2e.easypanel.host/webhook/create-code";
 
 const MATERIALS = [
   { id:"parquet", name:"Parquet", file:"materials/parquet.jpg" },
@@ -379,6 +380,11 @@ function getCodeFromUrl(){
   return params.get("code");
 }
 
+function isScanMode(){
+  const params = new URLSearchParams(window.location.search);
+  return params.get("scan") === "1";
+}
+
 function saveCode(code){
   if(code) localStorage.setItem(STORAGE_CODE_KEY, code);
 }
@@ -393,7 +399,12 @@ function clearSavedCode(){
 }
 
 function clearCodeFromUrl(){
-  window.history.replaceState({}, document.title, window.location.pathname);
+  const url = new URL(window.location.href);
+  url.searchParams.delete("code");
+  url.searchParams.delete("scan");
+  const newQuery = url.searchParams.toString();
+  const cleanUrl = url.pathname + (newQuery ? "?" + newQuery : "");
+  window.history.replaceState({}, document.title, cleanUrl);
 }
 
 function setBlockedMessage(msg, color = "#e74c3c"){
@@ -455,34 +466,117 @@ async function validateCode(code){
   return false;
 }
 
+/* CREA CODI NOU NOMÉS QUAN VENIM DE QR (?scan=1) I NOMÉS SI CAL */
+async function createNewCode(){
+  const res = await fetch(CREATE_CODE_URL, {
+    method:"POST"
+  });
+
+  if(!res.ok){
+    throw new Error("Resposta HTTP no OK de create-code");
+  }
+
+  const data = await res.json();
+  const newCode = data?.code ?? data?.data?.code ?? data?.access_code ?? data?.data?.access_code;
+
+  if(!newCode){
+    throw new Error("create-code no ha retornat cap codi");
+  }
+
+  currentAccessCode = newCode;
+  saveCode(newCode);
+
+  const ok = await validateCode(newCode);
+
+  if(!ok){
+    throw new Error("El nou codi creat no és vàlid");
+  }
+
+  return true;
+}
+
 async function autoLogin() {
   const codeFromUrl = getCodeFromUrl();
+  const scanMode = isScanMode();
 
-  // 1) Si arriba un nou code per URL (escaneig nou), aquest SEMPRE guanya
+  /* 1) Si arriba ?code=XXXX (cas antic/manual), aquest SEMPRE guanya */
   if(codeFromUrl){
     currentAccessCode = codeFromUrl;
     saveCode(codeFromUrl);
-  } else {
-    // 2) Si no hi ha code a URL, reutilitzem el guardat
-    const savedCode = getSavedCode();
 
-    if(!savedCode){
-      setBlockedMessage("Escaneja el QR o obre l’enllaç de la botiga per començar.", "#e67e22");
+    try {
+      const ok = await validateCode(currentAccessCode);
+
+      if(ok){
+        clearCodeFromUrl();
+        validate();
+        return;
+      } else {
+        clearSavedCode();
+        clearCodeFromUrl();
+        setBlockedMessage("Aquest accés ha caducat o ja no és vàlid. Torna a escanejar un nou QR o obrir un nou enllaç de la botiga.");
+        return;
+      }
+    } catch(err){
+      console.error("Error validant codi:", err);
+      setBlockedMessage("No s'ha pogut validar l'accés ara mateix.", "#e67e22");
       return;
     }
-
-    currentAccessCode = savedCode;
   }
 
-  // 3) Validem el codi actual (NOMÉS CONSULTA; NO HAURIA DE RESTAR)
+  /* 2) Si és un escaneig nou (?scan=1), PRIMER intentem reutilitzar el guardat */
+  if(scanMode){
+    const savedCode = getSavedCode();
+
+    if(savedCode){
+      currentAccessCode = savedCode;
+
+      try {
+        const ok = await validateCode(savedCode);
+
+        if(ok){
+          /* Té codi vàlid -> NO en crea un de nou */
+          clearCodeFromUrl();
+          validate();
+          return;
+        } else {
+          /* Caducat o sense intents -> el borrem i en creem un de nou */
+          clearSavedCode();
+        }
+      } catch(err){
+        console.error("Error validant codi guardat en scan:", err);
+        setBlockedMessage("No s'ha pogut validar l'accés ara mateix.", "#e67e22");
+        return;
+      }
+    }
+
+    /* Si no hi havia codi guardat o no era vàlid -> crea un de nou */
+    try {
+      await createNewCode();
+      clearCodeFromUrl();
+      validate();
+      return;
+    } catch(err){
+      console.error("Error creant nou codi:", err);
+      setBlockedMessage("No s'ha pogut crear un nou accés ara mateix. Torna-ho a provar.", "#e67e22");
+      return;
+    }
+  }
+
+  /* 3) Entrada normal (sense ?scan=1): només reutilitza, MAI crea nou */
+  const savedCode = getSavedCode();
+
+  if(!savedCode){
+    setBlockedMessage("Escaneja el QR o obre l’enllaç de la botiga per començar.", "#e67e22");
+    return;
+  }
+
+  currentAccessCode = savedCode;
+
   try {
     const ok = await validateCode(currentAccessCode);
 
     if(ok){
-      // si venia per URL, netegem la URL després de guardar-lo
-      if(codeFromUrl){
-        clearCodeFromUrl();
-      }
       validate();
     } else {
       clearSavedCode();
