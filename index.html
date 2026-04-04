@@ -549,6 +549,14 @@ function clearSavedEmail(){
   currentUserEmail = null;
 }
 
+function clearScanFromUrl(){
+  const url = new URL(window.location.href);
+  url.searchParams.delete("scan");
+  const newQuery = url.searchParams.toString();
+  const cleanUrl = url.pathname + (newQuery ? "?" + newQuery : "");
+  window.history.replaceState({}, document.title, cleanUrl);
+}
+
 function showAuthEmailStep(message = "Introdueix el teu correu electrònic per continuar."){
   authTitle.textContent = "Accés Surface AI";
   authSub.textContent = message;
@@ -573,6 +581,7 @@ function hideAuth(){
 
 function setBlockedMessage(msg, color = "#e74c3c"){
   accessGranted = false;
+  remainingAttempts = 0;
   document.getElementById("accessStatus").textContent = msg;
   document.getElementById("accessStatus").style.color = color;
   validate();
@@ -718,9 +727,16 @@ async function autoAccessFlow(){
   const scanMode = isScanMode();
   const savedEmail = getSavedEmail();
 
-  // CAS 1: ve de botiga / QR / link nou -> SEMPRE demana Gmail
+  // CAS 1: ve de botiga / QR / link nou
   if(scanMode){
-    clearSavedEmail();
+    // SI JA HI HA EMAIL GUARDAT, NO tornem a demanar Gmail en un refresh
+    if(savedEmail){
+      currentUserEmail = savedEmail;
+      await applyAccessForEmail(savedEmail);
+      return;
+    }
+
+    // Només si NO hi ha email guardat, demanem registre
     showAuthEmailStep("Introdueix el teu Gmail per rebre un codi de verificació i començar.");
     return;
   }
@@ -796,6 +812,7 @@ verifyCodeBtn.onclick = async () => {
     }
 
     saveEmail(email);
+    clearScanFromUrl();
     hideAuth();
     await applyAccessForEmail(email);
 
