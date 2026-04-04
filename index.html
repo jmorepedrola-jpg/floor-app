@@ -53,6 +53,103 @@ body::before{
   pointer-events:none;
 }
 
+/* =========================
+   LOGIN / VERIFY OVERLAY
+========================= */
+#authScreen{
+  position:fixed;
+  inset:0;
+  z-index:9998;
+  display:none;
+  align-items:center;
+  justify-content:center;
+  padding:20px;
+  background:rgba(0,0,0,.72);
+  backdrop-filter:blur(8px);
+}
+
+#authScreen.show{
+  display:flex;
+}
+
+.auth-card{
+  width:min(520px, 100%);
+  background:rgba(0,0,0,0.55);
+  border:1px solid rgba(255,255,255,0.08);
+  border-radius:24px;
+  padding:28px 22px;
+  backdrop-filter:blur(10px);
+  box-shadow:0 25px 70px rgba(0,0,0,.45);
+  text-align:center;
+}
+
+.auth-title{
+  margin:0 0 8px 0;
+  font-size:28px;
+  font-weight:900;
+}
+
+.auth-sub{
+  margin:0 0 18px 0;
+  color:#dfefff;
+  line-height:1.4;
+}
+
+.auth-input{
+  width:100%;
+  box-sizing:border-box;
+  padding:14px 16px;
+  border-radius:14px;
+  border:1px solid rgba(255,255,255,0.15);
+  background:rgba(255,255,255,0.08);
+  color:#fff;
+  outline:none;
+  font-size:16px;
+  margin-bottom:12px;
+}
+
+.auth-input::placeholder{
+  color:rgba(255,255,255,0.65);
+}
+
+.auth-row{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  justify-content:center;
+}
+
+.auth-btn{
+  background:linear-gradient(135deg,#2ecc71,#27ae60);
+  color:white;
+  border:none;
+  border-radius:14px;
+  padding:14px 18px;
+  font-size:15px;
+  font-weight:800;
+  cursor:pointer;
+  transition:.25s ease;
+  min-width:140px;
+}
+
+.auth-btn:hover{
+  transform:translateY(-2px);
+}
+
+.auth-btn.secondary{
+  background:linear-gradient(135deg,#34495e,#2c3e50);
+}
+
+#authStatus{
+  margin-top:14px;
+  min-height:20px;
+  font-weight:700;
+  font-size:14px;
+}
+
+/* =========================
+   CARDS
+========================= */
 .intro-card{
   width:min(900px, 100%);
   background:rgba(0,0,0,0.45);
@@ -250,8 +347,9 @@ h3 { margin-bottom:10px;}
 }
 
 button:disabled {
-  background:#555;
+  background:#555 !important;
   cursor:not-allowed;
+  opacity:.8;
 }
 
 #status { margin-top:10px;font-weight:600;}
@@ -290,6 +388,31 @@ button:disabled {
     </div>
 
     <button id="enterAppBtn" class="intro-btn">Entrar</button>
+  </div>
+</div>
+
+<!-- LOGIN / VERIFY -->
+<div id="authScreen">
+  <div class="auth-card">
+    <h2 class="auth-title" id="authTitle">Accés Surface AI</h2>
+    <p class="auth-sub" id="authSub">Introdueix el teu correu electrònic per continuar.</p>
+
+    <div id="emailStep">
+      <input type="email" id="emailInput" class="auth-input" placeholder="El teu Gmail">
+      <div class="auth-row">
+        <button id="sendCodeBtn" class="auth-btn">Enviar codi</button>
+      </div>
+    </div>
+
+    <div id="codeStep" style="display:none;">
+      <input type="text" id="codeInput" class="auth-input" placeholder="Codi de 5 dígits" maxlength="5" inputmode="numeric">
+      <div class="auth-row">
+        <button id="verifyCodeBtn" class="auth-btn">Verificar</button>
+        <button id="backToEmailBtn" class="auth-btn secondary">Canviar Gmail</button>
+      </div>
+    </div>
+
+    <p id="authStatus"></p>
   </div>
 </div>
 
@@ -337,18 +460,31 @@ button:disabled {
 </div>
 
 <script>
+/* =========================
+   URLS N8N
+========================= */
 const WEBHOOK_URL = "https://jan-n8n.4tpc2e.easypanel.host/webhook/Surface-ai";
-const VALIDATE_URL = "https://jan-n8n.4tpc2e.easypanel.host/webhook/validate-code";
-const CREATE_CODE_URL = "https://jan-n8n.4tpc2e.easypanel.host/webhook/create-code";
+const SEND_EMAIL_CODE_URL = "https://jan-n8n.4tpc2e.easypanel.host/webhook/send-email-code";
+const VERIFY_EMAIL_CODE_URL = "https://jan-n8n.4tpc2e.easypanel.host/webhook/verify-email-code";
+const CHECK_ACCESS_URL = "https://jan-n8n.4tpc2e.easypanel.host/webhook/check-access-test"; // si tens production sense -test, canvia-ho aquí
 
+/* =========================
+   MATERIALS
+========================= */
 const MATERIALS = [
   { id:"parquet", name:"Parquet", file:"materials/parquet.jpg" },
   { id:"rajola_gris", name:"Rajola junta grossa", file:"materials/rajola_gris.jpg" },
   { id:"rajola_gris1", name:"Rajola junta fina", file:"materials/rajola_gris1.jpg" }
 ];
 
-const STORAGE_CODE_KEY = "surface_ai_access_code";
+/* =========================
+   STORAGE
+========================= */
+const STORAGE_EMAIL_KEY = "surface_ai_user_email";
 
+/* =========================
+   ELEMENTS
+========================= */
 const materialsDiv = document.getElementById("materials");
 const matName = document.getElementById("matName");
 const sendBtn = document.getElementById("send");
@@ -361,238 +497,325 @@ const result = document.getElementById("result");
 const introScreen = document.getElementById("introScreen");
 const enterAppBtn = document.getElementById("enterAppBtn");
 
+const authScreen = document.getElementById("authScreen");
+const authTitle = document.getElementById("authTitle");
+const authSub = document.getElementById("authSub");
+const authStatus = document.getElementById("authStatus");
+const emailStep = document.getElementById("emailStep");
+const codeStep = document.getElementById("codeStep");
+const emailInput = document.getElementById("emailInput");
+const codeInput = document.getElementById("codeInput");
+const sendCodeBtn = document.getElementById("sendCodeBtn");
+const verifyCodeBtn = document.getElementById("verifyCodeBtn");
+const backToEmailBtn = document.getElementById("backToEmailBtn");
+
+/* =========================
+   ESTAT APP
+========================= */
 let selectedMaterial = null;
 let x = null, y = null;
-let accessGranted = false;
+let accessGranted = false;      // pot generar
 let remainingAttempts = 0;
-let currentAccessCode = null;
+let currentUserEmail = null;
 
-/* PORTADA */
+/* =========================
+   PORTADA
+========================= */
 if (enterAppBtn) {
-  enterAppBtn.onclick = () => {
+  enterAppBtn.onclick = async () => {
     introScreen.classList.add("hidden");
+    await autoAccessFlow();
   };
 }
 
-/* ACCÉS */
-function getCodeFromUrl(){
-  const params = new URLSearchParams(window.location.search);
-  return params.get("code");
-}
-
+/* =========================
+   HELPERS
+========================= */
 function isScanMode(){
   const params = new URLSearchParams(window.location.search);
   return params.get("scan") === "1";
 }
 
-function saveCode(code){
-  if(code) localStorage.setItem(STORAGE_CODE_KEY, code);
+function saveEmail(email){
+  if(email) localStorage.setItem(STORAGE_EMAIL_KEY, email);
 }
 
-function getSavedCode(){
-  return localStorage.getItem(STORAGE_CODE_KEY);
+function getSavedEmail(){
+  return localStorage.getItem(STORAGE_EMAIL_KEY);
 }
 
-function clearSavedCode(){
-  localStorage.removeItem(STORAGE_CODE_KEY);
-  currentAccessCode = null;
+function clearSavedEmail(){
+  localStorage.removeItem(STORAGE_EMAIL_KEY);
+  currentUserEmail = null;
 }
 
-function clearCodeFromUrl(){
-  const url = new URL(window.location.href);
-  url.searchParams.delete("code");
-  url.searchParams.delete("scan");
-  const newQuery = url.searchParams.toString();
-  const cleanUrl = url.pathname + (newQuery ? "?" + newQuery : "");
-  window.history.replaceState({}, document.title, cleanUrl);
+function showAuthEmailStep(message = "Introdueix el teu correu electrònic per continuar."){
+  authTitle.textContent = "Accés Surface AI";
+  authSub.textContent = message;
+  authStatus.textContent = "";
+  emailStep.style.display = "block";
+  codeStep.style.display = "none";
+  authScreen.classList.add("show");
+}
+
+function showAuthCodeStep(email){
+  authTitle.textContent = "Verifica el teu accés";
+  authSub.textContent = "Hem enviat un codi de 5 dígits a " + email;
+  authStatus.textContent = "";
+  emailStep.style.display = "none";
+  codeStep.style.display = "block";
+  authScreen.classList.add("show");
+}
+
+function hideAuth(){
+  authScreen.classList.remove("show");
 }
 
 function setBlockedMessage(msg, color = "#e74c3c"){
   accessGranted = false;
-  remainingAttempts = 0;
   document.getElementById("accessStatus").textContent = msg;
   document.getElementById("accessStatus").style.color = color;
   validate();
 }
 
-function updateAccessUI(data){
-  remainingAttempts = Number(
-    data?.remaining_attempts ??
-    data?.uses_left ??
+function setAllowedMessage(usesLeft){
+  accessGranted = true;
+  remainingAttempts = Number(usesLeft ?? 0);
+  document.getElementById("accessStatus").textContent = "Intents restants: " + remainingAttempts;
+  document.getElementById("accessStatus").style.color = "#2ecc71";
+  validate();
+}
+
+/* =========================
+   NORMALITZAR RESPOSTES N8N
+========================= */
+function getPayload(data){
+  return data?.data ?? data;
+}
+
+function parseCheckAccessResponse(data){
+  const payload = getPayload(data);
+
+  // flexible per si el workflow retorna camps diferents
+  const usesLeft = Number(
+    payload?.uses_left ??
+    payload?.remaining_attempts ??
     0
   );
 
-  if(remainingAttempts <= 0){
-    accessGranted = false;
-    clearSavedCode();
-    clearCodeFromUrl();
+  const canGenerate =
+    payload?.can_generate ??
+    payload?.access_granted ??
+    payload?.allowed ??
+    payload?.success ??
+    false;
 
-    document.getElementById("accessStatus").textContent =
-      "Has esgotat els intents. Torna a escanejar un nou QR o obrir un nou enllaç de la botiga.";
-    document.getElementById("accessStatus").style.color = "#e74c3c";
-    validate();
-    return;
-  }
+  const message =
+    payload?.message ??
+    data?.message ??
+    "";
 
-  accessGranted = true;
-  document.getElementById("accessStatus").textContent =
-    "Intents restants: " + remainingAttempts;
-  document.getElementById("accessStatus").style.color = "#2ecc71";
+  return {
+    canGenerate: Boolean(canGenerate),
+    usesLeft,
+    message
+  };
 }
 
-async function validateCode(code){
-  const res = await fetch(VALIDATE_URL,{
+/* =========================
+   N8N CALLS
+========================= */
+async function sendEmailCode(email){
+  const res = await fetch(SEND_EMAIL_CODE_URL, {
     method:"POST",
     headers:{ "Content-Type":"application/json" },
-    body:JSON.stringify({ code })
+    body: JSON.stringify({ email })
   });
 
   if(!res.ok){
-    throw new Error("Resposta HTTP no OK de validate-code");
+    throw new Error("No s'ha pogut enviar el codi");
   }
 
-  const data = await res.json();
-  const payload = data?.data ?? data;
-
-  const hasAttemptsField =
-    payload?.remaining_attempts !== undefined ||
-    payload?.uses_left !== undefined;
-
-  if((data?.success || hasAttemptsField) && payload){
-    updateAccessUI(payload);
-    return true;
-  }
-
-  return false;
+  return await res.json();
 }
 
-/* CREA CODI NOU NOMÉS QUAN VENIM DE QR (?scan=1) I NOMÉS SI CAL */
-async function createNewCode(){
-  const res = await fetch(CREATE_CODE_URL, {
-    method:"POST"
+async function verifyEmailCode(email, code){
+  const res = await fetch(VERIFY_EMAIL_CODE_URL, {
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify({ email, code })
   });
 
   if(!res.ok){
-    throw new Error("Resposta HTTP no OK de create-code");
+    throw new Error("No s'ha pogut verificar el codi");
   }
 
   const data = await res.json();
-  const newCode = data?.code ?? data?.data?.code ?? data?.access_code ?? data?.data?.access_code;
+  const payload = getPayload(data);
 
-  if(!newCode){
-    throw new Error("create-code no ha retornat cap codi");
-  }
+  const ok =
+    payload?.success ??
+    data?.success ??
+    payload?.verified ??
+    data?.verified ??
+    false;
 
-  currentAccessCode = newCode;
-  saveCode(newCode);
-
-  const ok = await validateCode(newCode);
-
-  if(!ok){
-    throw new Error("El nou codi creat no és vàlid");
-  }
-
-  return true;
+  return Boolean(ok);
 }
 
-async function autoLogin() {
-  const codeFromUrl = getCodeFromUrl();
-  const scanMode = isScanMode();
+async function checkAccess(email){
+  const res = await fetch(CHECK_ACCESS_URL, {
+    method:"POST",
+    headers:{ "Content-Type":"application/json" },
+    body: JSON.stringify({ email })
+  });
 
-  /* 1) Si arriba ?code=XXXX (cas antic/manual), aquest SEMPRE guanya */
-  if(codeFromUrl){
-    currentAccessCode = codeFromUrl;
-    saveCode(codeFromUrl);
-
-    try {
-      const ok = await validateCode(currentAccessCode);
-
-      if(ok){
-        clearCodeFromUrl();
-        validate();
-        return;
-      } else {
-        clearSavedCode();
-        clearCodeFromUrl();
-        setBlockedMessage("Aquest accés ha caducat o ja no és vàlid. Torna a escanejar un nou QR o obrir un nou enllaç de la botiga.");
-        return;
-      }
-    } catch(err){
-      console.error("Error validant codi:", err);
-      setBlockedMessage("No s'ha pogut validar l'accés ara mateix.", "#e67e22");
-      return;
-    }
+  if(!res.ok){
+    throw new Error("No s'ha pogut comprovar l'accés");
   }
 
-  /* 2) Si és un escaneig nou (?scan=1), PRIMER intentem reutilitzar el guardat */
-  if(scanMode){
-    const savedCode = getSavedCode();
+  const data = await res.json();
+  return parseCheckAccessResponse(data);
+}
 
-    if(savedCode){
-      currentAccessCode = savedCode;
-
-      try {
-        const ok = await validateCode(savedCode);
-
-        if(ok){
-          /* Té codi vàlid -> NO en crea un de nou */
-          clearCodeFromUrl();
-          validate();
-          return;
-        } else {
-          /* Caducat o sense intents -> el borrem i en creem un de nou */
-          clearSavedCode();
-        }
-      } catch(err){
-        console.error("Error validant codi guardat en scan:", err);
-        setBlockedMessage("No s'ha pogut validar l'accés ara mateix.", "#e67e22");
-        return;
-      }
-    }
-
-    /* Si no hi havia codi guardat o no era vàlid -> crea un de nou */
-    try {
-      await createNewCode();
-      clearCodeFromUrl();
-      validate();
-      return;
-    } catch(err){
-      console.error("Error creant nou codi:", err);
-      setBlockedMessage("No s'ha pogut crear un nou accés ara mateix. Torna-ho a provar.", "#e67e22");
-      return;
-    }
-  }
-
-  /* 3) Entrada normal (sense ?scan=1): només reutilitza, MAI crea nou */
-  const savedCode = getSavedCode();
-
-  if(!savedCode){
-    setBlockedMessage("Escaneja el QR o obre l’enllaç de la botiga per començar.", "#e67e22");
-    return;
-  }
-
-  currentAccessCode = savedCode;
+/* =========================
+   FLUX D'ACCÉS
+========================= */
+async function applyAccessForEmail(email){
+  currentUserEmail = email;
 
   try {
-    const ok = await validateCode(currentAccessCode);
+    const access = await checkAccess(email);
 
-    if(ok){
-      validate();
+    remainingAttempts = access.usesLeft;
+
+    if(access.canGenerate){
+      setAllowedMessage(access.usesLeft);
     } else {
-      clearSavedCode();
-      clearCodeFromUrl();
-      setBlockedMessage("Aquest accés ha caducat o ja no és vàlid. Torna a escanejar un nou QR o obrir un nou enllaç de la botiga.");
+      // ENTRA IGUAL A LA APP, PERÒ NO POT GENERAR
+      accessGranted = false;
+      document.getElementById("accessStatus").textContent =
+        access.message ||
+        "Se t'han acabat els intents o el temps. Torna a la nostra botiga i escaneja un nou QR o enllaç per continuar.";
+      document.getElementById("accessStatus").style.color = "#f39c12";
+      validate();
     }
 
   } catch(err){
-    console.error("Error validant codi:", err);
-    setBlockedMessage("No s'ha pogut validar l'accés ara mateix.", "#e67e22");
+    console.error("Error check-access:", err);
+
+    // Per no trencar la UX, deixem entrar però sense generar
+    accessGranted = false;
+    remainingAttempts = 0;
+    document.getElementById("accessStatus").textContent =
+      "No s'ha pogut comprovar l'accés ara mateix. Torna-ho a provar.";
+    document.getElementById("accessStatus").style.color = "#e67e22";
+    validate();
   }
 }
 
-window.onload = autoLogin;
+async function autoAccessFlow(){
+  const scanMode = isScanMode();
+  const savedEmail = getSavedEmail();
 
-/* MATERIALS */
+  // CAS 1: ve de botiga / QR / link nou -> SEMPRE demana Gmail
+  if(scanMode){
+    clearSavedEmail();
+    showAuthEmailStep("Introdueix el teu Gmail per rebre un codi de verificació i començar.");
+    return;
+  }
+
+  // CAS 2: entra des de casa sense scan
+  if(savedEmail){
+    currentUserEmail = savedEmail;
+    await applyAccessForEmail(savedEmail);
+    return;
+  }
+
+  // CAS 3: no hi ha email guardat i no ve de scan
+  // No bloquegem la pàgina, però mostrem missatge
+  setBlockedMessage("Escaneja el QR o obre l’enllaç de la botiga per començar.", "#e67e22");
+}
+
+/* =========================
+   EVENTS AUTH
+========================= */
+sendCodeBtn.onclick = async () => {
+  const email = (emailInput.value || "").trim().toLowerCase();
+
+  if(!email){
+    authStatus.textContent = "Introdueix un correu electrònic.";
+    authStatus.style.color = "#e74c3c";
+    return;
+  }
+
+  authStatus.textContent = "Enviant codi...";
+  authStatus.style.color = "#dfefff";
+  sendCodeBtn.disabled = true;
+
+  try {
+    await sendEmailCode(email);
+    currentUserEmail = email;
+    showAuthCodeStep(email);
+  } catch(err){
+    console.error(err);
+    authStatus.textContent = "Error enviant el codi ❌";
+    authStatus.style.color = "#e74c3c";
+  } finally {
+    sendCodeBtn.disabled = false;
+  }
+};
+
+verifyCodeBtn.onclick = async () => {
+  const email = (currentUserEmail || "").trim().toLowerCase();
+  const code = (codeInput.value || "").trim();
+
+  if(!email){
+    authStatus.textContent = "Falta el correu electrònic.";
+    authStatus.style.color = "#e74c3c";
+    return;
+  }
+
+  if(!/^\d{5}$/.test(code)){
+    authStatus.textContent = "El codi ha de tenir 5 dígits.";
+    authStatus.style.color = "#e74c3c";
+    return;
+  }
+
+  authStatus.textContent = "Verificant...";
+  authStatus.style.color = "#dfefff";
+  verifyCodeBtn.disabled = true;
+
+  try {
+    const ok = await verifyEmailCode(email, code);
+
+    if(!ok){
+      authStatus.textContent = "Codi incorrecte o caducat ❌";
+      authStatus.style.color = "#e74c3c";
+      return;
+    }
+
+    saveEmail(email);
+    hideAuth();
+    await applyAccessForEmail(email);
+
+  } catch(err){
+    console.error(err);
+    authStatus.textContent = "Error verificant el codi ❌";
+    authStatus.style.color = "#e74c3c";
+  } finally {
+    verifyCodeBtn.disabled = false;
+  }
+};
+
+backToEmailBtn.onclick = () => {
+  codeInput.value = "";
+  showAuthEmailStep("Introdueix el teu Gmail per rebre un nou codi.");
+};
+
+/* =========================
+   MATERIALS
+========================= */
 MATERIALS.forEach(m=>{
   const d=document.createElement("div");
   d.className="material";
@@ -643,10 +866,14 @@ roomImg.onclick=e=>{
   validate();
 };
 
+/* =========================
+   VALIDACIÓ BOTÓ ENVIAR
+========================= */
 function validate(){
   sendBtn.disabled = !(
     accessGranted &&
     remainingAttempts > 0 &&
+    currentUserEmail &&
     selectedMaterial &&
     x !== null &&
     document.getElementById("roomFile").files[0]
@@ -659,19 +886,25 @@ async function urlToFile(url,name){
   return new File([b],name,{type:b.type});
 }
 
+/* =========================
+   GENERAR IMATGE
+========================= */
 sendBtn.onclick=async()=>{
-  if(!accessGranted || remainingAttempts <= 0 || !currentAccessCode){
-    alert("Accés no disponible o sense intents.");
+  if(!currentUserEmail){
+    alert("Cal verificar el correu electrònic abans de continuar.");
+    return;
+  }
+
+  if(!accessGranted || remainingAttempts <= 0){
+    alert("Se t'han acabat els intents o el temps. Torna a la nostra botiga i escaneja un nou QR o enllaç per continuar.");
     return;
   }
 
   status.textContent="Processant...";
-
-  // Evitem doble clic / doble consum accidental
   sendBtn.disabled = true;
 
   const fd=new FormData();
-  fd.append("access_code", currentAccessCode);
+  fd.append("email", currentUserEmail); // IMPORTANT: ara enviem email, no access_code
   fd.append("room_image",document.getElementById("roomFile").files[0]);
   fd.append("material_image",await urlToFile(selectedMaterial.file,selectedMaterial.id+".jpg"));
   fd.append("material_name",selectedMaterial.id);
@@ -687,7 +920,6 @@ sendBtn.onclick=async()=>{
 
     const blob=await res.blob();
 
-    // Si per algun motiu no arriba imatge real
     if(!blob || blob.size === 0){
       throw new Error("La resposta no conté imatge");
     }
@@ -696,29 +928,17 @@ sendBtn.onclick=async()=>{
     result.style.display="block";
     status.textContent="Fet ✅";
 
-    // Només després que la imatge arribi bé, refresquem intents
-    // (això només consulta; el descompte real ha d'estar a Surface-ai)
+    // Després de generar, refresquem estat real (per veure si ha baixat intents)
     try {
-      const ok = await validateCode(currentAccessCode);
-
-      if(!ok){
-        clearSavedCode();
-        clearCodeFromUrl();
-        setBlockedMessage("Aquest accés ha caducat o ja no és vàlid. Torna a la botiga i escaneja un nou QR o enllaç.");
-      } else {
-        validate();
-      }
-
+      await applyAccessForEmail(currentUserEmail);
     } catch(err){
-      console.error("Error refrescant intents:", err);
-      // No trenquem l'experiència si falla el refresc visual
+      console.error("Error refrescant access:", err);
       validate();
     }
 
   } catch(err){
     console.error(err);
     status.textContent="Error ❌";
-    // Rehabilitem si hi ha error, sense gastar res des del front
     validate();
   }
 };
