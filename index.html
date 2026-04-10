@@ -537,11 +537,12 @@ function isScanMode(){
 }
 
 function saveEmail(email){
-  if(email) localStorage.setItem(STORAGE_EMAIL_KEY, email);
+  if(email) localStorage.setItem(STORAGE_EMAIL_KEY, String(email).trim().toLowerCase());
 }
 
 function getSavedEmail(){
-  return localStorage.getItem(STORAGE_EMAIL_KEY);
+  const email = localStorage.getItem(STORAGE_EMAIL_KEY);
+  return email ? String(email).trim().toLowerCase() : null;
 }
 
 function clearSavedEmail(){
@@ -605,7 +606,6 @@ function getPayload(data){
 function parseCheckAccessResponse(data){
   const payload = getPayload(data);
 
-  // flexible per si el workflow retorna camps diferents
   const usesLeft = Number(
     payload?.uses_left ??
     payload?.remaining_attempts ??
@@ -691,10 +691,10 @@ async function checkAccess(email){
    FLUX D'ACCÉS
 ========================= */
 async function applyAccessForEmail(email){
-  currentUserEmail = email;
+  currentUserEmail = String(email || "").trim().toLowerCase();
 
   try {
-    const access = await checkAccess(email);
+    const access = await checkAccess(currentUserEmail);
 
     remainingAttempts = access.usesLeft;
 
@@ -729,14 +729,11 @@ async function autoAccessFlow(){
 
   // CAS 1: ve de botiga / QR / link nou
   if(scanMode){
-    // SI JA HI HA EMAIL GUARDAT, NO tornem a demanar Gmail en un refresh
-    if(savedEmail){
-      currentUserEmail = savedEmail;
-      await applyAccessForEmail(savedEmail);
-      return;
-    }
-
-    // Només si NO hi ha email guardat, demanem registre
+    // IMPORTANT:
+    // Si ve amb ?scan=1, SEMPRE forcem nou registre.
+    // Això representa un nou escaneig real de botiga.
+    clearSavedEmail();
+    currentUserEmail = null;
     showAuthEmailStep("Introdueix el teu Gmail per rebre un codi de verificació i començar.");
     return;
   }
@@ -749,7 +746,6 @@ async function autoAccessFlow(){
   }
 
   // CAS 3: no hi ha email guardat i no ve de scan
-  // No bloquegem la pàgina, però mostrem missatge
   setBlockedMessage("Escaneja el QR o obre l’enllaç de la botiga per començar.", "#e67e22");
 }
 
@@ -811,9 +807,20 @@ verifyCodeBtn.onclick = async () => {
       return;
     }
 
+    // Guardem email per refresh / entrar des de casa
     saveEmail(email);
+
+    // IMPORTANT: traiem ?scan=1 perquè si refresca NO torni a forçar registre
     clearScanFromUrl();
+
+    // Tanquem overlay
     hideAuth();
+
+    // Netegem inputs
+    codeInput.value = "";
+    emailInput.value = "";
+
+    // Apliquem estat real d'accés
     await applyAccessForEmail(email);
 
   } catch(err){
